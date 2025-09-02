@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Output and generated files
+output/
+
+# Environment variables / secrets
+.env
+
+# Build artifacts
+dist/
+build/
+*.egg-info/ 
