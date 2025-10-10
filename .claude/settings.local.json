@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(uvicorn:*)"
+      "Bash(uvicorn:*)",
+      "WebSearch",
+      "WebFetch(domain:supabase.com)"
     ],
     "deny": []
   }
