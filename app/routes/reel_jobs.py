@@ -5,52 +5,17 @@ import logging
 from app.models.reel_job import ReelJob
 from app.dependencies.reel_dependencies import get_reel_service
 from app.services.reel_service import ReelService
-from app.dependencies.auth_dependencies import get_current_user, CurrentUser
+from app.dependencies.security_deps import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reels", tags=["reels"])
 
+
 @router.get("/test")
-async def test_endpoint(
-    current_user: CurrentUser = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    Test endpoint to verify JWT authentication is working.
-    
-    **Authentication Required**: Valid JWT token must be provided.
-    
-    Args:
-        current_user: Authenticated user context (automatically injected)
-    
-    Returns:
-        Dictionary containing user information and authentication status
-        
-    Raises:
-        HTTPException:
-            - 401: Authentication required or invalid token
-    """
-    try:
-        logger.info(f"Test endpoint accessed by user: {current_user.user_id}")
-        
-        return {
-            "message": "JWT authentication successful!",
-            "user": {
-                "user_id": current_user.user_id,
-                "email": current_user.email,
-                "role": current_user.role,
-                "is_premium": current_user.is_premium(),
-                "is_admin": current_user.is_admin()
-            },
-            "status": "authenticated"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in test endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
-        )
+async def test_endpoint(current_user = Depends(get_current_user)):
+    return {"message": "Test endpoint is working", "user": current_user}
+
 
 @router.post("/extract")
 async def extract_reels(
