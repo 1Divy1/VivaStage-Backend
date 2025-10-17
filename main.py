@@ -8,7 +8,7 @@ from groq import Groq
 from pathlib import Path
 
 from app.core.logging import setup_logging
-from app.routes import reel_jobs
+from app.controllers import shorts_generator_controller
 from app.core.config import (
     OPENAI_API_KEY, 
     GROQ_API_KEY,
@@ -63,7 +63,7 @@ app = FastAPI(
     openapi_url=None
 )
 
-# Register API routes
+# Register API controllers
 app.include_router(reel_jobs.router)
 
 app.add_middleware(

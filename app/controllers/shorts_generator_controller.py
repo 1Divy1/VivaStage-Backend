@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Dict, Any
 import logging
 
@@ -18,12 +18,12 @@ async def test_endpoint(current_user = Depends(get_current_user)):
 
 
 @router.post("/extract")
-async def extract_reels(
+async def extract_shorts(
     reel_input: ReelJob,
     service: ReelService = Depends(get_reel_service)
 ) -> Dict[str, Any]:
     """
-    Extract highlight reels from a YouTube video.
+    Extract highlight shorts from a YouTube video.
     
     This endpoint processes a YouTube video to create short-form content:
     - Downloads video and audio from YouTube
@@ -78,7 +78,6 @@ async def get_processing_status(
     
     Args:
         processing_id: Unique identifier for the processing job
-        current_user: Authenticated user context (automatically injected)
     
     Returns:
         Dictionary containing processing status and progress information
@@ -126,7 +125,6 @@ async def get_user_history(
     Returns only the authenticated user's processing history.
     
     Args:
-        current_user: Authenticated user context (automatically injected)
         limit: Maximum number of records to return (default: 10, max: 100)
         offset: Number of records to skip for pagination (default: 0)
     
