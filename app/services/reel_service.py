@@ -8,6 +8,7 @@ from app.utils.utils import save_data
 from app.core.logging import get_logger
 
 from datetime import datetime
+from pathlib import Path
 
 logger = get_logger(__name__)
 
@@ -61,21 +62,57 @@ class ReelService:
 
         highlight_moments = self.llm_engine.extract_highlights(llm_input, reel_data_input, llm_dir)
 
+        # Step 5: Cut video clips based on highlights
+        logger.info("Cutting video clips from highlights...")
+        clip_timestamps = [(moment.start, moment.end) for moment in highlight_moments]
+        self.video_engine.cut_clips(
+            video_audio_result["video_file"],
+            clip_timestamps,
+            clips_dir
+        )
 
+        # Step 6: Process each clip into 9:16 shorts with face detection
+        logger.info("Processing clips into 9:16 shorts...")
+        short_video_paths = []
+        for i, moment in enumerate(highlight_moments):
+            clip_path = Path(clips_dir) / f"clip_{i+1}.mp4"
+            short_path = Path(shorts_dir) / f"short_{i+1}.mp4"
 
-        # TODO: Implement remaining pipeline steps:
-        # - Cut video clips based on highlights
-        # - Create 9:16 shorts with face detection
-        # - Add captions if requested
-        # - Return video URLs
-        
+            if clip_path.exists():
+                self.video_engine.create_short_from_clip(clip_path, short_path)
+                short_video_paths.append(str(short_path))
+            else:
+                logger.warning(f"Clip file not found: {clip_path}")
+
+        # Step 7: Add captions if requested
+        final_video_paths = []
+        if reel_data_input.captions:
+            logger.info("Adding captions to shorts...")
+            for i, (moment, short_path) in enumerate(zip(highlight_moments, short_video_paths)):
+                captioned_path = Path(shorts_dir) / f"short_captioned_{i+1}.mp4"
+                try:
+                    self.caption_engine.create_captions_for_short(
+                        video_path=Path(short_path),
+                        output_path=captioned_path,
+                        word_transcription=transcription_result,
+                        start_time=moment.start,
+                        end_time=moment.end
+                    )
+                    final_video_paths.append(str(captioned_path))
+                except Exception as e:
+                    logger.warning(f"Failed to add captions to short {i+1}: {e}")
+                    final_video_paths.append(short_path)  # Fallback to non-captioned
+        else:
+            final_video_paths = short_video_paths
+
         highlight_moments_dict = [moment.model_dump() for moment in highlight_moments]
         
         # Return result with processing information
         return {
             "status": "completed",
-            "message": "Highlight extraction completed successfully", 
+            "message": "Reel processing completed successfully",
             "highlights": highlight_moments_dict,
+            "video_urls": final_video_paths,
             "processed_at": datetime.utcnow().isoformat(),
             "processing_details": {
                 "number_of_reels": reel_data_input.number_of_reels,
@@ -83,7 +120,8 @@ class ReelService:
                 "max_seconds": reel_data_input.max_seconds,
                 "youtube_url": str(reel_data_input.youtube_url),
                 "language": reel_data_input.language,
-                "captions_enabled": reel_data_input.captions
+                "captions_enabled": reel_data_input.captions,
+                "videos_generated": len(final_video_paths)
             }
         }
 

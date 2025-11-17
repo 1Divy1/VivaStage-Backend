@@ -5,7 +5,10 @@
       "Bash(uvicorn:*)",
       "WebSearch",
       "WebFetch(domain:supabase.com)",
-      "Read(//Users/mbpro/**)"
+      "Read(//Users/mbpro/**)",
+      "Bash(tree:*)",
+      "Bash(ollama list:*)",
+      "Bash(ollama show:*)"
     ],
     "deny": []
   }

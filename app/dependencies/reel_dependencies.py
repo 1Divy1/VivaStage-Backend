@@ -12,7 +12,7 @@ def get_llm_engine(request: Request) -> LLMEngine:
     """Singleton pattern - single LLM engine instance throughout app's lifecycle"""
     if not hasattr(request.app.state, 'llm_engine'):
         request.app.state.llm_engine = LLMEngine(
-            openai_client=request.app.state.openai_client
+            llm_provider=request.app.state.llm_provider
         )
     return request.app.state.llm_engine
 
