@@ -263,3 +263,22 @@ class AudioEngine:
             "segments": processed_chunks if has_segments else [],
             "words": all_words,
         }
+
+    def transcribe_audio_with_output(self, audio_file: str, transcription_dir: str, language: str) -> dict:
+        """Transcribe audio file in chunks and save the result."""
+        from app.core.logging import get_logger
+        from app.utils.utils import save_data
+
+        logger = get_logger(__name__)
+        logger.info("Transcribing audio...")
+
+        result = self.transcribe_audio_in_chunks(
+            audio_path=Path(audio_file),
+            transcription_dir=transcription_dir,
+            chunk_length=60,  # seconds
+            overlap=0,  # seconds
+            language=language
+        )
+
+        save_data(data=result, base_path=transcription_dir, file_name="transcription")
+        return result

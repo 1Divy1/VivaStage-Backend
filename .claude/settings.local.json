@@ -4,7 +4,11 @@
       "Bash(python:*)",
       "Bash(uvicorn:*)",
       "WebSearch",
-      "WebFetch(domain:supabase.com)"
+      "WebFetch(domain:supabase.com)",
+      "Read(//Users/mbpro/**)",
+      "Bash(tree:*)",
+      "Bash(ollama list:*)",
+      "Bash(ollama show:*)"
     ],
     "deny": []
   }

@@ -1,17 +1,19 @@
 from typing import List
-from openai import OpenAI
+import asyncio
 
 from app.models.LLM.HighlightMoment import HighlightMoment
 from app.models.LLM.HighlightMoments import HighlightMoments
+from app.providers.llm.base import LLMProvider, LLMProviderError
 
 
 class LLMEngine:
 
-    def __init__(self, openai_client: OpenAI = None):
-        self.openai_client = openai_client
+    def __init__(self, llm_provider: LLMProvider):
+        self.llm_provider = llm_provider
 
 
-    def create_llm_input_format(self, word_transcription: dict) -> str:
+    @staticmethod
+    def create_llm_input_format(word_transcription: dict) -> str:
         """
         Create a formatted string for LLM input.
         Raw words -> sentences (by punctuation) -> formatted sentences with timestamps.
@@ -78,7 +80,7 @@ class LLMEngine:
         return formatted_output
 
 
-    def llm_inference(
+    async def llm_inference(
         self,
         llm_model: str,
         system_prompt: str,
@@ -93,16 +95,55 @@ class LLMEngine:
             user_prompt (str): The prompt to send to the LLM.
 
         Returns:
-            dict: The response from the LLM containing highlight moments.
+            List[HighlightMoment]: The response from the LLM containing highlight moments.
         """
-        # TODO: Add a token to credit calculator
-        response = self.openai_client.responses.parse(
-            model=llm_model,
-            instructions=system_prompt,  # System prompt
-            input=user_prompt,           # User prompt
-            text_format=HighlightMoments
-        )
-        structured_response: List[HighlightMoment] = response.output_parsed.highlights
+        try:
+            # Use the abstracted provider for inference
+            structured_response = await self.llm_provider.generate_structured_response(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response_model=HighlightMoments,
+                model=llm_model
+            )
 
-        return structured_response
+            return structured_response.highlights
+
+        except LLMProviderError as e:
+            from app.core.logging import get_logger
+            logger = get_logger(__name__)
+            logger.error(f"LLM inference failed: {e}")
+            raise
+
+    def extract_highlights(self, llm_input: str, reel_data_input, llm_dir: str):
+        """Extract highlight moments using LLM with organized prompt system."""
+        from app.core.logging import get_logger
+        from app.utils.utils import save_data
+        from app.prompts.manager import prompt_manager
+
+        logger = get_logger(__name__)
+        logger.info("Extracting highlights using LLM...")
+
+        # Determine provider type based on LLM provider
+        provider_type = 'local' if self.llm_provider.provider_name == 'local' else 'api'
+
+        # Get formatted prompts from prompt manager
+        prompts = prompt_manager.get_highlight_extraction_prompts(
+            provider_type=provider_type,
+            number_of_reels=reel_data_input.number_of_reels,
+            min_seconds=reel_data_input.min_seconds,
+            max_seconds=reel_data_input.max_seconds,
+            llm_input=llm_input
+        )
+
+        highlight_moments = asyncio.run(self.llm_inference(
+            llm_model=None,  # Use default model from provider configuration
+            system_prompt=prompts['system'],
+            user_prompt=prompts['user']
+        ))
+
+        # Convert Pydantic models to dict for JSON serialization
+        highlight_moments_dict = [moment.model_dump() for moment in highlight_moments]
+        save_data(data=highlight_moments_dict, base_path=llm_dir, file_name="highlight_moments")
+
+        return highlight_moments
 

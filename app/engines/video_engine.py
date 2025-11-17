@@ -413,3 +413,29 @@ class VideoEngine:
             clip_filename: Path = Path(os.path.join(output_dir, f"clip_{i+1}.mp4"))
             clip.write_videofile(filename=clip_filename)
 
+    def download_and_process_video(self, youtube_url: str, video_dir: str, audio_dir: str) -> dict:
+        """Download video and audio from YouTube and merge them."""
+        from app.core.logging import get_logger
+        logger = get_logger(__name__)
+
+        logger.info("Downloading video and audio...")
+
+        video_audio_result = self.download_video_and_audio(
+            youtube_url,
+            video_dir,
+            audio_dir
+        )
+
+        logger.info("Merging video and audio...")
+        final_video_path = os.path.join(video_dir, "final_video.mp4")
+        final_video_file = self.merge_video_and_audio(
+            video_audio_result["video_file"],
+            video_audio_result["audio_file"],
+            final_video_path
+        )
+
+        return {
+            "video_file": final_video_file,
+            "audio_file": video_audio_result["audio_file"]
+        }
+
