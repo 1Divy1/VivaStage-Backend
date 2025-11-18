@@ -9,6 +9,7 @@ from app.core.logging import get_logger
 
 from datetime import datetime
 from pathlib import Path
+import shutil
 
 logger = get_logger(__name__)
 
@@ -35,7 +36,7 @@ class ReelService:
         self.audio_engine = audio_engine
         self.caption_engine = caption_engine
 
-    def process_reel(self, reel_data_input: ReelJob):
+    async def process_reel(self, reel_data_input: ReelJob):
         """THE PIPELINE - Process a reel extraction request through the complete pipeline."""
         logger.info(f"Starting reel processing for {reel_data_input.number_of_reels} reels")
 
@@ -60,7 +61,7 @@ class ReelService:
         llm_input = self.llm_engine.create_llm_input_format(word_transcription=transcription_result)
         save_data(data=llm_input, base_path=llm_dir, file_name="prompt_formatted_input")
 
-        highlight_moments = self.llm_engine.extract_highlights(llm_input, reel_data_input, llm_dir)
+        highlight_moments = await self.llm_engine.extract_highlights(llm_input, reel_data_input, llm_dir)
 
         # Step 5: Cut video clips based on highlights
         logger.info("Cutting video clips from highlights...")
@@ -105,23 +106,18 @@ class ReelService:
         else:
             final_video_paths = short_video_paths
 
-        highlight_moments_dict = [moment.model_dump() for moment in highlight_moments]
-        
-        # Return result with processing information
+        # Step 8: Cleanup - Remove clips folder
+        logger.info("Cleaning up temporary clips folder...")
+        try:
+            if Path(clips_dir).exists():
+                shutil.rmtree(clips_dir)
+                logger.info(f"Removed clips folder: {clips_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to remove clips folder: {e}")
+
+        # Return minimal success response
         return {
             "status": "completed",
-            "message": "Reel processing completed successfully",
-            "highlights": highlight_moments_dict,
-            "video_urls": final_video_paths,
-            "processed_at": datetime.utcnow().isoformat(),
-            "processing_details": {
-                "number_of_reels": reel_data_input.number_of_reels,
-                "min_seconds": reel_data_input.min_seconds,
-                "max_seconds": reel_data_input.max_seconds,
-                "youtube_url": str(reel_data_input.youtube_url),
-                "language": reel_data_input.language,
-                "captions_enabled": reel_data_input.captions,
-                "videos_generated": len(final_video_paths)
-            }
+            "message": "Reel processing completed successfully"
         }
 

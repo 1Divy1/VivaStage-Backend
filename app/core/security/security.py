@@ -6,9 +6,21 @@ from app.core.security.jwks import get_jwks
 from app.core.config import SUPABASE_AUDIENCE
 
 
-def verify_jwt(token: str):
+async def verify_jwt(token: str):
+    """
+    Verify and decode a JWT token using Supabase JWKS.
+
+    Args:
+        token: JWT token string to verify
+
+    Returns:
+        dict: Decoded JWT payload
+
+    Raises:
+        HTTPException: If token is invalid, expired, or has invalid claims
+    """
     try:
-        jwks = get_jwks()
+        jwks = await get_jwks()
         unverified_header = jwt.get_unverified_header(token)
 
         kid = unverified_header.get("kid")

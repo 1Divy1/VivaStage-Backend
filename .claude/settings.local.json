@@ -8,7 +8,9 @@
       "Read(//Users/mbpro/**)",
       "Bash(tree:*)",
       "Bash(ollama list:*)",
-      "Bash(ollama show:*)"
+      "Bash(ollama show:*)",
+      "Bash(nul)",
+      "Bash(pip index:*)"
     ],
     "deny": []
   }

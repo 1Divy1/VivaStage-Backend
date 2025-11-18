@@ -110,7 +110,7 @@ class CaptionEngine:
                 # 1. Add main caption text (always visible during caption time)
                 text_filter = (
                     f"drawtext=text='{escaped_full_text}'"
-                    f":fontfile='C\\:/Windows/Fonts/impact.ttf'"
+                    f":font=Arial"
                     f":fontsize={font_size}"
                     f":fontcolor={font_color}"
                     f":borderw={stroke_width}"

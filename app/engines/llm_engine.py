@@ -114,7 +114,7 @@ class LLMEngine:
             logger.error(f"LLM inference failed: {e}")
             raise
 
-    def extract_highlights(self, llm_input: str, reel_data_input, llm_dir: str):
+    async def extract_highlights(self, llm_input: str, reel_data_input, llm_dir: str):
         """Extract highlight moments using LLM with organized prompt system."""
         from app.core.logging import get_logger
         from app.utils.utils import save_data
@@ -135,11 +135,11 @@ class LLMEngine:
             llm_input=llm_input
         )
 
-        highlight_moments = asyncio.run(self.llm_inference(
+        highlight_moments = await self.llm_inference(
             llm_model=None,  # Use default model from provider configuration
             system_prompt=prompts['system'],
             user_prompt=prompts['user']
-        ))
+        )
 
         # Convert Pydantic models to dict for JSON serialization
         highlight_moments_dict = [moment.model_dump() for moment in highlight_moments]

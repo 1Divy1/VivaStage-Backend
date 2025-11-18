@@ -7,14 +7,14 @@ openai==1.57.2
 groq==0.15.0
 
 # Audio Processing
-torch==2.2.2
-torchaudio==2.2.2
-soundfile==0.12.1
+torch==2.8.0
+torchaudio==2.8.0
+soundfile==0.13.1
 
 # Video Processing
 opencv-contrib-python==4.11.0.86
 moviepy==2.2.1
-pytubefix
+pytubefix==9.5.0
 
 # Computer Vision
 face-recognition==1.3.0
@@ -28,8 +28,4 @@ python-dotenv==1.1.1
 python-jose==3.3.0
 
 # HTTP
-requests==2.32.0
-httpx==0.27.0
-
-# Local LLM Support
-# Note: For local LLM usage, install Ollama separately: https://ollama.ai
+httpx==0.28.1
