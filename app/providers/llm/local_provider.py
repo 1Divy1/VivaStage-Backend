@@ -2,9 +2,9 @@ import json
 import asyncio
 from typing import List, Dict, Any
 from pydantic import BaseModel, ValidationError
-import httpx
 
 from app.providers.llm.base import LLMProvider, LLMProviderError
+from app.core.http import HTTPClient, HTTPClientError
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -28,6 +28,7 @@ class LocalLLMProvider(LLMProvider):
         self.default_model = default_model
         self.timeout = timeout
         self._available_models = None
+        self.http_client = HTTPClient(default_timeout=float(timeout))
 
     async def generate_structured_response(
         self,
@@ -75,13 +76,12 @@ class LocalLLMProvider(LLMProvider):
                 }
             }
 
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/generate",
-                    json=payload
-                )
-                response.raise_for_status()
-                result = response.json()
+            response = await self.http_client.post(
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=self.timeout
+            )
+            result = response.json()
 
             # Extract and parse the response
             response_text = result.get("response", "").strip()
@@ -107,10 +107,10 @@ class LocalLLMProvider(LLMProvider):
                 structured_response = self._fallback_parse(response_text, response_model)
                 return structured_response
 
-        except httpx.RequestError as e:
-            logger.error(f"Failed to connect to local LLM server: {e}")
+        except HTTPClientError as e:
+            logger.error(f"HTTP error during local LLM request: {e}")
             raise LLMProviderError(
-                f"Connection to local LLM server failed: {str(e)}",
+                f"Local LLM request failed: {str(e)}",
                 provider="local",
                 original_error=e
             )
@@ -251,16 +251,17 @@ class LocalLLMProvider(LLMProvider):
             return self._available_models
 
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
-                response.raise_for_status()
-                data = response.json()
+            response = await self.http_client.get(
+                f"{self.base_url}/api/tags",
+                timeout=30.0
+            )
+            data = response.json()
 
-                models = [model["name"] for model in data.get("models", [])]
-                self._available_models = models
-                return models
+            models = [model["name"] for model in data.get("models", [])]
+            self._available_models = models
+            return models
 
-        except Exception as e:
+        except HTTPClientError as e:
             logger.warning(f"Failed to fetch available models: {e}")
             return [self.default_model]  # Fallback to default
 
@@ -272,8 +273,10 @@ class LocalLLMProvider(LLMProvider):
     async def health_check(self) -> bool:
         """Check if the local LLM server is accessible."""
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{self.base_url}/api/version")
-                return response.status_code == 200
-        except Exception:
+            response = await self.http_client.get(
+                f"{self.base_url}/api/version",
+                timeout=10.0
+            )
+            return response.status_code == 200
+        except HTTPClientError:
             return False

@@ -68,7 +68,7 @@ Processed videos are saved in timestamped directories under `output/` with subdi
 - `shorts/`: Final 9:16 processed shorts
 
 ### Environment Variables
-- `GROQ_API_KEY`: Required for LLM inference
+- `GROQ_API_KEY`: Required for Whisper inference
 
 ### Dependencies
 Key external dependencies include mediapipe, opencv-contrib-python, face_recognition, groq, fastapi, and moviepy. FFmpeg must be installed separately on the system.

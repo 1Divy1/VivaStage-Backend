@@ -21,6 +21,7 @@ async def test_endpoint(current_user = Depends(get_current_user)):
 async def extract_shorts(
     reel_input: ReelJob,
     service: ReelService = Depends(get_reel_service)
+    # TODO: Enable auth for production deployment
 ) -> Dict[str, Any]:
     """
     Extract highlight shorts from a YouTube video.
@@ -47,10 +48,10 @@ async def extract_shorts(
     """
     try:
         logger.info(f"Processing reel extraction request - URL: {reel_input.youtube_url}")
-        
+
         # Process the reel without user context
-        result = service.process_reel(reel_data_input=reel_input)
-        
+        result = await service.process_reel(reel_data_input=reel_input)
+
         logger.info("Reel extraction completed successfully")
         
         return result
