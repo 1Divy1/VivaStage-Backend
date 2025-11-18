@@ -4,6 +4,10 @@ __pycache__/
 *.pyo
 *.pyd
 
+# AI agents
+.claude
+CLAUDE.md
+
 # Virtual environments
 .venv/
 venv/
@@ -26,4 +30,7 @@ output/
 # Build artifacts
 dist/
 build/
-*.egg-info/ 
+*.egg-info/
+
+# Log files
+*.log
