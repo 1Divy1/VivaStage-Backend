@@ -4,7 +4,7 @@ from pydantic import BaseModel, HttpUrl, field_validator
 '''Reel model (Pydantic)'''
 
 
-class ReelJob(BaseModel):
+class GenerateShortsRequestModel(BaseModel):
     youtube_url: HttpUrl
     number_of_reels: int
     min_seconds: int

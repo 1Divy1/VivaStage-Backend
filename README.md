@@ -85,7 +85,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your API keys (see Configuration section)
 
-# 4. For local LLM usage
+# 4. For local shorts usage
 # Install Ollama from https://ollama.com
 ollama pull llama3.1:8b
 ```
@@ -107,7 +107,7 @@ Required environment variables:
 GROQ_API_KEY=your_groq_api_key          # Required for transcription
 OPENAI_API_KEY=your_openai_key          # Required if LLM_PROVIDER=openai
 
-# LLM Provider Configuration
+# shorts Provider Configuration
 LLM_PROVIDER=local                      # Options: "local" or "openai"
 LOCAL_LLM_URL=http://localhost:11434    # Ollama endpoint
 LOCAL_LLM_MODEL=qwen3:8b                # Model name for Ollama

@@ -1,9 +1,9 @@
 from typing import List
 import asyncio
 
-from app.models.LLM.HighlightMoment import HighlightMoment
-from app.models.LLM.HighlightMoments import HighlightMoments
-from app.providers.llm.base import LLMProvider, LLMProviderError
+from app.pydantic_models.shorts.short_model import ShortModel
+from app.pydantic_models.shorts.shorts_response_model import ShortsResponseModel
+from app.providers.llm.base_llm_provider import LLMProvider, LLMProviderError
 
 
 class LLMEngine:
@@ -15,7 +15,7 @@ class LLMEngine:
     @staticmethod
     def create_llm_input_format(word_transcription: dict) -> str:
         """
-        Create a formatted string for LLM input.
+        Create a formatted string for shorts input.
         Raw words -> sentences (by punctuation) -> formatted sentences with timestamps.
 
         Args:
@@ -85,24 +85,24 @@ class LLMEngine:
         llm_model: str,
         system_prompt: str,
         user_prompt: str
-    ) -> List[HighlightMoment]:
+    ) -> List[ShortModel]:
         """
-        Get highlight moments from transcription using LLM.
+        Get highlight moments from transcription using shorts.
 
         Args:
             llm_model (str): The model to use for inference.
-            system_prompt (str): The system prompt to guide the LLM's behavior.
-            user_prompt (str): The prompt to send to the LLM.
+            system_prompt (str): The system prompt to guide the shorts's behavior.
+            user_prompt (str): The prompt to send to the shorts.
 
         Returns:
-            List[HighlightMoment]: The response from the LLM containing highlight moments.
+            List[ShortModel]: The response from the shorts containing highlight moments.
         """
         try:
             # Use the abstracted provider for inference
             structured_response = await self.llm_provider.generate_structured_response(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                response_model=HighlightMoments,
+                response_model=ShortsResponseModel,
                 model=llm_model
             )
 
@@ -111,19 +111,19 @@ class LLMEngine:
         except LLMProviderError as e:
             from app.core.logging import get_logger
             logger = get_logger(__name__)
-            logger.error(f"LLM inference failed: {e}")
+            logger.error(f"shorts inference failed: {e}")
             raise
 
     async def extract_highlights(self, llm_input: str, reel_data_input, llm_dir: str):
-        """Extract highlight moments using LLM with organized prompt system."""
+        """Extract highlight moments using shorts with organized prompt system."""
         from app.core.logging import get_logger
         from app.utils.utils import save_data
         from app.prompts.manager import prompt_manager
 
         logger = get_logger(__name__)
-        logger.info("Extracting highlights using LLM...")
+        logger.info("Extracting highlights using shorts...")
 
-        # Determine provider type based on LLM provider
+        # Determine provider type based on shorts provider
         provider_type = 'local' if self.llm_provider.provider_name == 'local' else 'api'
 
         # Get formatted prompts from prompt manager
@@ -141,7 +141,7 @@ class LLMEngine:
             user_prompt=prompts['user']
         )
 
-        # Convert Pydantic models to dict for JSON serialization
+        # Convert Pydantic pydantic_models to dict for JSON serialization
         highlight_moments_dict = [moment.model_dump() for moment in highlight_moments]
         save_data(data=highlight_moments_dict, base_path=llm_dir, file_name="highlight_moments")
 

@@ -2,7 +2,7 @@ from typing import List
 from pydantic import BaseModel
 from openai import OpenAI
 
-from app.providers.llm.base import LLMProvider, LLMProviderError
+from app.providers.llm.base_llm_provider import LLMProvider, LLMProviderError
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -12,7 +12,7 @@ class OpenAIProvider(LLMProvider):
     """
     OpenAI API provider implementation.
 
-    Provides structured response generation using OpenAI's models
+    Provides structured response generation using OpenAI's pydantic_models
     with the new structured outputs API.
     """
 
@@ -38,7 +38,7 @@ class OpenAIProvider(LLMProvider):
         Generate structured response using OpenAI's structured outputs.
 
         Args:
-            system_prompt: System instructions for the LLM
+            system_prompt: System instructions for the shorts
             user_prompt: User prompt/question
             response_model: Pydantic model for structured output
             model: OpenAI model to use
@@ -82,7 +82,7 @@ class OpenAIProvider(LLMProvider):
             )
 
     def get_available_models(self) -> List[str]:
-        """Get list of available OpenAI models."""
+        """Get list of available OpenAI pydantic_models."""
         return self._available_models.copy()
 
     @property

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Dict, Any
 import logging
 
-from app.models.reel_job import ReelJob
+from app.pydantic_models.shorts.generate_shorts_request_model import GenerateShortsRequestModel
 from app.dependencies.reel_dependencies import get_reel_service
 from app.services.reel_service import ReelService
 from app.dependencies.security_deps import get_current_user
@@ -12,14 +12,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reels", tags=["reels"])
 
 
-@router.get("/test")
-async def test_endpoint(current_user = Depends(get_current_user)):
-    return {"message": "Test endpoint is working", "user": current_user}
-
-
 @router.post("/extract")
 async def extract_shorts(
-    reel_input: ReelJob,
+    reel_request: GenerateShortsRequestModel,
     service: ReelService = Depends(get_reel_service)
     # TODO: Enable auth for production deployment
 ) -> Dict[str, Any]:
@@ -35,7 +30,7 @@ async def extract_shorts(
     - Applies automatic captions
     
     Args:
-        reel_input: Video processing parameters including YouTube URL and preferences
+        reel_request: Video processing parameters including YouTube URL and preferences
         service: Reel processing service (automatically injected)
     
     Returns:
@@ -47,10 +42,10 @@ async def extract_shorts(
             - 500: Processing error
     """
     try:
-        logger.info(f"Processing reel extraction request - URL: {reel_input.youtube_url}")
+        logger.info(f"Processing reel extraction request - URL: {reel_request.youtube_url}")
 
         # Process the reel without user context
-        result = await service.process_reel(reel_data_input=reel_input)
+        result = await service.process_reel(reel_data_input=reel_request)
 
         logger.info("Reel extraction completed successfully")
         

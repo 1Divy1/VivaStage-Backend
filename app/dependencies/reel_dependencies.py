@@ -6,10 +6,11 @@ from app.engines.llm_engine import LLMEngine
 from app.engines.video_engine import VideoEngine
 from app.engines.audio_engine import AudioEngine
 from app.services.reel_service import ReelService
+from app.providers.transcription.transcription_provider_factory import TranscriptionProviderFactory
 
 
 def get_llm_engine(request: Request) -> LLMEngine:
-    """Singleton pattern - single LLM engine instance throughout app's lifecycle"""
+    """Singleton pattern - single shorts engine instance throughout app's lifecycle"""
     if not hasattr(request.app.state, 'llm_engine'):
         request.app.state.llm_engine = LLMEngine(
             llm_provider=request.app.state.llm_provider
@@ -22,11 +23,23 @@ def get_video_engine() -> VideoEngine:
     return VideoEngine()
 
 
+def get_transcription_provider(request: Request):
+    """Get or create TranscriptionProvider instance."""
+    if not hasattr(request.app.state, 'transcription_provider'):
+        request.app.state.transcription_provider = TranscriptionProviderFactory.create_provider(
+            provider_type=request.app.state.transcription_provider_type,
+            groq_client=request.app.state.groq_client,
+            groq_model=request.app.state.groq_transcription_model
+        )
+    return request.app.state.transcription_provider
+
+
 def get_audio_engine(request: Request) -> AudioEngine:
     """Get or create AudioEngine instance."""
     if not hasattr(request.app.state, 'audio_engine'):
+        transcription_provider = get_transcription_provider(request)
         request.app.state.audio_engine = AudioEngine(
-            groq_client=request.app.state.groq_client
+            transcription_provider=transcription_provider
         )
     return request.app.state.audio_engine
 
