@@ -1,13 +1,11 @@
 from app.engines.audio_engine import AudioEngine
 from app.engines.caption_engine import CaptionEngine
-from app.models.reel_job import ReelJob
+from app.pydantic_models.shorts.generate_shorts_request_model import GenerateShortsRequestModel
 from app.engines.llm_engine import LLMEngine
 from app.engines.video_engine import VideoEngine
-from app.helpers.pipeline_helper import PipelineHelper
-from app.utils.utils import save_data
+from app.utils.utils import save_data, prepare_output_dirs
 from app.core.logging import get_logger
 
-from datetime import datetime
 from pathlib import Path
 import shutil
 
@@ -36,12 +34,12 @@ class ReelService:
         self.audio_engine = audio_engine
         self.caption_engine = caption_engine
 
-    async def process_reel(self, reel_data_input: ReelJob):
+    async def process_reel(self, reel_data_input: GenerateShortsRequestModel):
         """THE PIPELINE - Process a reel extraction request through the complete pipeline."""
         logger.info(f"Starting reel processing for {reel_data_input.number_of_reels} reels")
 
         # Step 1: Setup directories
-        base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = PipelineHelper.prepare_output_dirs()
+        base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = prepare_output_dirs()
 
         # Step 2: Download and process video/audio
         video_audio_result = self.video_engine.download_and_process_video(
@@ -51,13 +49,13 @@ class ReelService:
         )
 
         # Step 3: Transcribe audio
-        transcription_result = self.audio_engine.transcribe_audio_with_output(
+        transcription_result = await self.audio_engine.transcribe_audio_with_output(
             video_audio_result["audio_file"],
             transcription_dir,
             reel_data_input.language
         )
 
-        # Step 4: Extract highlights using LLM
+        # Step 4: Extract highlights using shorts
         llm_input = self.llm_engine.create_llm_input_format(word_transcription=transcription_result)
         save_data(data=llm_input, base_path=llm_dir, file_name="prompt_formatted_input")
 
@@ -115,9 +113,48 @@ class ReelService:
         except Exception as e:
             logger.warning(f"Failed to remove clips folder: {e}")
 
-        # Return minimal success response
+        # Extract processing ID from base_dir (format: output/{timestamp}_{uuid})
+        processing_id = Path(base_dir).name
+
+        # Build comprehensive response with file paths and metadata
+        shorts_info = []
+        for i, (moment, short_path) in enumerate(zip(highlight_moments, final_video_paths)):
+            short_path_obj = Path(short_path)
+            # Calculate relative path from workspace root
+            try:
+                # Try to get relative path from current working directory
+                relative_path = str(short_path_obj.relative_to(Path.cwd()))
+            except ValueError:
+                # If that fails, construct it manually from base_dir
+                relative_path = str(Path(base_dir) / "shorts" / short_path_obj.name)
+            
+            shorts_info.append({
+                "index": i + 1,
+                "file_path": str(short_path_obj.absolute()),
+                "relative_path": relative_path,
+                "file_name": short_path_obj.name,
+                "start_time": moment.start,
+                "end_time": moment.end,
+                "duration": round(moment.end - moment.start, 2),
+                "text": moment.text,
+                "reason": moment.reason,
+                "exists": short_path_obj.exists()
+            })
+
         return {
             "status": "completed",
-            "message": "Reel processing completed successfully"
+            "message": "Reel processing completed successfully",
+            "processing_id": processing_id,
+            "base_directory": str(Path(base_dir).absolute()),
+            "shorts_directory": str(Path(shorts_dir).absolute()),
+            "shorts": shorts_info,
+            "total_shorts": len(final_video_paths),
+            "metadata": {
+                "youtube_url": str(reel_data_input.youtube_url),
+                "number_requested": reel_data_input.number_of_reels,
+                "number_generated": len(final_video_paths),
+                "language": reel_data_input.language,
+                "captions_enabled": reel_data_input.captions
+            }
         }
 

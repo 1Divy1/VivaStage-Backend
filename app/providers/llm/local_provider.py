@@ -3,7 +3,7 @@ import asyncio
 from typing import List, Dict, Any
 from pydantic import BaseModel, ValidationError
 
-from app.providers.llm.base import LLMProvider, LLMProviderError
+from app.providers.llm.base_llm_provider import LLMProvider, LLMProviderError
 from app.core.http import HTTPClient, HTTPClientError
 from app.core.logging import get_logger
 
@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 
 class LocalLLMProvider(LLMProvider):
     """
-    Local LLM provider implementation using Ollama.
+    Local shorts provider implementation using Ollama.
 
     This provider connects to a local Ollama server to run LLMs locally,
     providing cost-effective inference for development and testing.
@@ -42,7 +42,7 @@ class LocalLLMProvider(LLMProvider):
         Generate structured response using local Ollama model.
 
         Args:
-            system_prompt: System instructions for the LLM
+            system_prompt: System instructions for the shorts
             user_prompt: User prompt/question
             response_model: Pydantic model for structured output
             model: Local model to use (defaults to configured model)
@@ -88,7 +88,7 @@ class LocalLLMProvider(LLMProvider):
 
             if not response_text:
                 raise LLMProviderError(
-                    "Local LLM returned empty response",
+                    "Local shorts returned empty response",
                     provider="local"
                 )
 
@@ -98,7 +98,7 @@ class LocalLLMProvider(LLMProvider):
             # Validate and create Pydantic model
             try:
                 structured_response = response_model.model_validate(structured_data)
-                logger.info("Local LLM response generated and validated successfully")
+                logger.info("Local shorts response generated and validated successfully")
                 return structured_response
 
             except ValidationError as e:
@@ -108,16 +108,16 @@ class LocalLLMProvider(LLMProvider):
                 return structured_response
 
         except HTTPClientError as e:
-            logger.error(f"HTTP error during local LLM request: {e}")
+            logger.error(f"HTTP error during local shorts request: {e}")
             raise LLMProviderError(
-                f"Local LLM request failed: {str(e)}",
+                f"Local shorts request failed: {str(e)}",
                 provider="local",
                 original_error=e
             )
         except Exception as e:
-            logger.error(f"Local LLM error: {str(e)}")
+            logger.error(f"Local shorts error: {str(e)}")
             raise LLMProviderError(
-                f"Local LLM request failed: {str(e)}",
+                f"Local shorts request failed: {str(e)}",
                 provider="local",
                 original_error=e
             )
@@ -143,7 +143,7 @@ class LocalLLMProvider(LLMProvider):
         )
 
     def _extract_json_from_response(self, text: str) -> Dict[str, Any]:
-        """Extract JSON from LLM response, enhanced for Qwen3 compatibility."""
+        """Extract JSON from shorts response, enhanced for Qwen3 compatibility."""
         # Remove markdown code blocks if present
         text = text.strip()
 
@@ -173,7 +173,7 @@ class LocalLLMProvider(LLMProvider):
 
         if start == -1:
             raise LLMProviderError(
-                "No JSON object or array found in LLM response",
+                "No JSON object or array found in shorts response",
                 provider="local"
             )
 
@@ -203,7 +203,7 @@ class LocalLLMProvider(LLMProvider):
 
         if end <= start:
             raise LLMProviderError(
-                "No complete JSON structure found in LLM response",
+                "No complete JSON structure found in shorts response",
                 provider="local"
             )
 
@@ -216,7 +216,7 @@ class LocalLLMProvider(LLMProvider):
             logger.error(f"Failed to parse JSON. Original text length: {len(text)}")
             logger.error(f"Extracted JSON text: {json_text[:200]}..." if len(json_text) > 200 else f"Extracted JSON text: {json_text}")
             raise LLMProviderError(
-                f"Invalid JSON in LLM response: {str(e)}",
+                f"Invalid JSON in shorts response: {str(e)}",
                 provider="local",
                 original_error=e
             )
@@ -231,22 +231,22 @@ class LocalLLMProvider(LLMProvider):
             return self._parse_highlight_moments_fallback(text)
 
         raise LLMProviderError(
-            "Failed to parse LLM response with all available strategies",
+            "Failed to parse shorts response with all available strategies",
             provider="local"
         )
 
     def _parse_highlight_moments_fallback(self, text: str) -> BaseModel:
         """Fallback parser specifically for HighlightMoments."""
         # This is a basic implementation - extend as needed
-        from app.models.LLM.HighlightMoments import HighlightMoments
-        from app.models.LLM.HighlightMoment import HighlightMoment
+        from app.pydantic_models.shorts.shorts_response_model import ShortsResponseModel
+        from app.pydantic_models.shorts.short_model import ShortModel
 
         # Return empty highlights as fallback
         logger.warning("Using empty highlights as fallback")
-        return HighlightMoments(highlights=[])
+        return ShortsResponseModel(highlights=[])
 
     async def get_available_models(self) -> List[str]:
-        """Get list of available local models from Ollama."""
+        """Get list of available local pydantic_models from Ollama."""
         if self._available_models is not None:
             return self._available_models
 
@@ -257,12 +257,12 @@ class LocalLLMProvider(LLMProvider):
             )
             data = response.json()
 
-            models = [model["name"] for model in data.get("models", [])]
+            models = [model["name"] for model in data.get("pydantic_models", [])]
             self._available_models = models
             return models
 
         except HTTPClientError as e:
-            logger.warning(f"Failed to fetch available models: {e}")
+            logger.warning(f"Failed to fetch available pydantic_models: {e}")
             return [self.default_model]  # Fallback to default
 
     @property
@@ -271,7 +271,7 @@ class LocalLLMProvider(LLMProvider):
         return "local"
 
     async def health_check(self) -> bool:
-        """Check if the local LLM server is accessible."""
+        """Check if the local shorts server is accessible."""
         try:
             response = await self.http_client.get(
                 f"{self.base_url}/api/version",

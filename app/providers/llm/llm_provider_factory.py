@@ -1,9 +1,11 @@
 from typing import Optional
 from openai import OpenAI
+from groq import Groq
 
-from app.providers.llm.base import LLMProvider, LLMProviderError
+from app.providers.llm.base_llm_provider import LLMProvider, LLMProviderError
 from app.providers.llm.openai_provider import OpenAIProvider
 from app.providers.llm.local_provider import LocalLLMProvider
+from app.providers.llm.groq_provider import GroqProvider
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -11,42 +13,51 @@ logger = get_logger(__name__)
 
 class LLMProviderFactory:
     """
-    Factory class for creating LLM provider instances.
+    Factory class for creating shorts provider instances.
 
     Handles provider instantiation based on configuration,
-    allowing seamless switching between different LLM providers.
+    allowing seamless switching between different shorts providers.
     """
 
     @staticmethod
     def create_provider(
         provider_type: str,
         openai_client: Optional[OpenAI] = None,
+        groq_client: Optional[Groq] = None,
+        groq_model: Optional[str] = None,
         local_llm_url: Optional[str] = None,
         local_llm_model: Optional[str] = None,
         **kwargs
     ) -> LLMProvider:
         """
-        Create an LLM provider instance based on the specified type.
+        Create an shorts provider instance based on the specified type.
 
         Args:
-            provider_type: Type of provider to create ("openai", "local")
+            provider_type: Type of provider to create ("openai", "groq", "local")
             openai_client: OpenAI client instance (required for "openai" provider)
-            local_llm_url: Base URL for local LLM server (for "local" provider)
-            local_llm_model: Default model for local LLM (for "local" provider)
+            groq_client: Groq client instance (required for "groq" provider)
+            groq_model: Default model for Groq (for "groq" provider)
+            local_llm_url: Base URL for local shorts server (for "local" provider)
+            local_llm_model: Default model for local shorts (for "local" provider)
             **kwargs: Additional provider-specific configuration
 
         Returns:
-            Configured LLM provider instance
+            Configured shorts provider instance
 
         Raises:
             LLMProviderError: If provider type is invalid or configuration is missing
         """
         provider_type = provider_type.lower().strip()
 
-        logger.info(f"Creating LLM provider: {provider_type}")
+        logger.info(f"Creating shorts provider: {provider_type}")
 
         if provider_type == "openai":
             return LLMProviderFactory._create_openai_provider(openai_client, **kwargs)
+
+        elif provider_type == "groq":
+            return LLMProviderFactory._create_groq_provider(
+                groq_client, groq_model, **kwargs
+            )
 
         elif provider_type == "local":
             return LLMProviderFactory._create_local_provider(
@@ -55,8 +66,8 @@ class LLMProviderFactory:
 
         else:
             raise LLMProviderError(
-                f"Unknown LLM provider type: {provider_type}. "
-                f"Supported types: openai, local",
+                f"Unknown shorts provider type: {provider_type}. "
+                f"Supported types: openai, groq, local",
                 provider=provider_type
             )
 
@@ -72,12 +83,30 @@ class LLMProviderFactory:
         return OpenAIProvider(client=client)
 
     @staticmethod
+    def _create_groq_provider(
+        client: Optional[Groq],
+        default_model: Optional[str] = None,
+        **kwargs
+    ) -> GroqProvider:
+        """Create Groq provider instance."""
+        if client is None:
+            raise LLMProviderError(
+                "Groq client is required for Groq provider",
+                provider="groq"
+            )
+
+        # Set default model
+        default_model = default_model or "llama-3.1-8b-instant"
+
+        return GroqProvider(client=client, default_model=default_model)
+
+    @staticmethod
     def _create_local_provider(
         base_url: Optional[str] = None,
         default_model: Optional[str] = None,
         **kwargs
     ) -> LocalLLMProvider:
-        """Create local LLM provider instance."""
+        """Create local shorts provider instance."""
         # Set defaults
         base_url = base_url or "http://localhost:11434"
         default_model = default_model or "llama3.1:8b"
@@ -93,7 +122,7 @@ class LLMProviderFactory:
     @staticmethod
     def get_supported_providers() -> list[str]:
         """Get list of supported provider types."""
-        return ["openai", "local"]
+        return ["openai", "groq", "local"]
 
     @staticmethod
     def validate_provider_config(provider_type: str, config: dict) -> bool:
@@ -117,6 +146,13 @@ class LLMProviderFactory:
                 raise LLMProviderError(
                     "OpenAI client is required in configuration",
                     provider="openai"
+                )
+
+        elif provider_type == "groq":
+            if not config.get("groq_client"):
+                raise LLMProviderError(
+                    "Groq client is required in configuration",
+                    provider="groq"
                 )
 
         elif provider_type == "local":
