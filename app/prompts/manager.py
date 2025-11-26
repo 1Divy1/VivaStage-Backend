@@ -17,8 +17,8 @@ class PromptTemplate(ABC):
         pass
 
 
-class ChatMLTemplate(PromptTemplate):
-    """ChatML template for local models like Qwen3."""
+class LocalTemplate(PromptTemplate):
+    """ChatML template format for local pydantic_models like Qwen3."""
 
     def format_prompt(self, system_prompt: str, user_prompt: str, **kwargs) -> str:
         """Format prompts using ChatML format."""
@@ -49,7 +49,7 @@ CRITICAL REQUIREMENTS:
 
 
 class OpenAITemplate(PromptTemplate):
-    """OpenAI template for API-based models."""
+    """OpenAI template for API-based pydantic_models."""
 
     def format_prompt(self, system_prompt: str, user_prompt: str, **kwargs) -> str:
         """Format prompts for OpenAI API (handled by OpenAI client)."""
@@ -69,7 +69,7 @@ class PromptManager:
 
         # Template registry
         self.templates = {
-            'chatml': ChatMLTemplate(),
+            'chatml': LocalTemplate(),
             'openai': OpenAITemplate()
         }
 

@@ -1,27 +1,37 @@
-import time
 import subprocess
 import re
-import io
 from pathlib import Path
 
 import torch
 import torchaudio
-import soundfile as sf
-from groq import Groq, RateLimitError
+
+from app.providers.transcription.base_transcription_provider import TranscriptionProvider
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class AudioEngine:
     """
-    AudioEngine provides methods for audio preprocessing and transcription using Whisper through Groq's API.
+    AudioEngine provides methods for audio preprocessing and transcription.
+
+    Uses an injected TranscriptionProvider for actual transcription work,
+    while handling audio preprocessing and chunk merging.
     """
 
-    def __init__(self, groq_client: Groq):
-        self.groq_client = groq_client
+    def __init__(self, transcription_provider: TranscriptionProvider):
+        """
+        Initialize AudioEngine with a transcription provider.
+
+        Args:
+            transcription_provider: Provider instance for transcription operations
+        """
+        self.transcription_provider = transcription_provider
 
     # ----------------------------
-    # Public orchestrator
+    # Public orchestrator methods
     # ----------------------------
-    def transcribe_audio_in_chunks(
+    async def transcribe_audio_in_chunks(
         self,
         audio_path: Path,
         transcription_dir: Path,
@@ -29,69 +39,96 @@ class AudioEngine:
         overlap: int,
         language: str,
     ) -> dict:
-        print(f"\nStarting transcription of: {audio_path}")
+        """
+        Transcribe audio file in chunks using the configured transcription provider.
+
+        Args:
+            audio_path: Path to the audio file
+            transcription_dir: Directory for temporary files
+            chunk_length: Length of each chunk in seconds
+            overlap: Overlap between chunks in seconds
+            language: Target language for transcription
+
+        Returns:
+            Dictionary containing transcription results
+        """
+        logger.info(f"Starting transcription of: {audio_path}")
 
         processed_path = None
         try:
             # Preprocess to 16kHz mono FLAC
             processed_path = self._preprocess_audio(
-                input_path=Path(audio_path),
+                input_path=audio_path,
                 output_path=Path(transcription_dir) / "processed.flac",
             )
 
-            # Load with torchaudio
-            waveform, sample_rate = torchaudio.load(processed_path)
-            duration_s = waveform.shape[1] / sample_rate
-            print(f"Audio duration: {duration_s:.2f}s")
+            # Use the transcription provider to transcribe the preprocessed file
+            result = await self.transcription_provider.transcribe_audio_file(
+                audio_path=processed_path,
+                language=language,
+                chunk_length=chunk_length,
+                overlap=overlap,
+                response_format="verbose_json",
+                timestamp_granularities=["word"],
+                temperature=0.0
+            )
 
-            # Chunk params
-            chunk_samples = chunk_length * sample_rate
-            overlap_samples = overlap * sample_rate
-            step = chunk_samples - overlap_samples
-            total_chunks = (waveform.shape[1] // step) + 1
-            print(f"Processing {total_chunks} chunks...")
-
-            results = []
-            total_transcription_time = 0
-
-            for i in range(total_chunks):
-                start = i * step
-                end = min(start + chunk_samples, waveform.shape[1])
-
-                print(f"\nProcessing chunk {i + 1}/{total_chunks}")
-                print(f"Sample range: {start} - {end}")
-
-                # Slice waveform
-                chunk_waveform = waveform[:, start:end]
-
-                # Transcribe
-                result, chunk_time = self._transcribe_single_chunk(
-                    client=self.groq_client,
-                    waveform=chunk_waveform,
-                    sample_rate=sample_rate,
-                    chunk_num=i + 1,
-                    total_chunks=total_chunks,
-                    language=language,
-                )
-                total_transcription_time += chunk_time
-                results.append((result, start / sample_rate * 1000))  # offset in ms
-
-            final_result = self._merge_transcripts(results=results)
-            print(f"\nTotal Groq API transcription time: {total_transcription_time:.2f}s")
-
-            return final_result
+            return result
 
         finally:
+            # Clean up temporary files
             if processed_path and Path(processed_path).exists():
                 Path(processed_path).unlink(missing_ok=True)
 
+    async def transcribe_audio_with_output(self, audio_file: str, transcription_dir: str, language: str) -> dict:
+        """
+        Transcribe audio file in chunks and save the result.
+
+        Args:
+            audio_file: Path to the audio file
+            transcription_dir: Directory to save transcription results
+            language: Target language for transcription
+
+        Returns:
+            Dictionary containing transcription results
+        """
+        from app.utils.utils import save_data
+
+        logger.info("Transcribing audio...")
+
+        result = await self.transcribe_audio_in_chunks(
+            audio_path=Path(audio_file),
+            transcription_dir=Path(transcription_dir),
+            chunk_length=60,  # seconds
+            overlap=0,  # seconds
+            language=language
+        )
+
+        save_data(data=result, base_path=transcription_dir, file_name="transcription")
+        return result
+
     # ----------------------------
-    # Audio preprocessing
+    # Audio preprocessing utilities
     # ----------------------------
     @staticmethod
     def _preprocess_audio(input_path: Path, output_path: Path) -> Path:
+        """
+        Preprocess audio file to 16kHz mono FLAC format.
+
+        Args:
+            input_path: Path to input audio file
+            output_path: Path for output processed file
+
+        Returns:
+            Path to the processed audio file
+
+        Raises:
+            FileNotFoundError: If input file doesn't exist
+            RuntimeError: If FFmpeg conversion fails
+        """
         if not input_path.exists():
             raise FileNotFoundError(f"Input file not found: {input_path}")
+
         try:
             subprocess.run(
                 [
@@ -117,55 +154,16 @@ class AudioEngine:
             raise RuntimeError(f"FFmpeg conversion failed: {e.stderr}")
 
     # ----------------------------
-    # Transcribe one chunk (in memory)
-    # ----------------------------
-    @staticmethod
-    def _transcribe_single_chunk(
-        client: Groq,
-        waveform: torch.Tensor,
-        sample_rate: int,
-        chunk_num: int,
-        total_chunks: int,
-        language: str,
-    ) -> tuple[dict, float]:
-        total_api_time = 0
-
-        while True:
-            # Save tensor → BytesIO as FLAC
-            buffer = io.BytesIO()
-            sf.write(buffer, waveform.squeeze(0).numpy(), sample_rate, format="FLAC")
-            buffer.seek(0)
-
-            start_time = time.time()
-            try:
-                result = client.audio.transcriptions.create(
-                    file=("chunk.flac", buffer, "audio/flac"),
-                    model="whisper-large-v3",
-                    language=language,
-                    response_format="verbose_json",
-                    timestamp_granularities=["word"],
-                    temperature=0.0,
-                )
-                api_time = time.time() - start_time
-                total_api_time += api_time
-
-                print(f"Chunk {chunk_num}/{total_chunks} processed in {api_time:.2f}s")
-                return result, total_api_time
-
-            except RateLimitError:
-                print(f"\nRate limit hit for chunk {chunk_num} - retrying in 60 seconds...")
-                time.sleep(60)
-                continue
-
-            except Exception as e:
-                print(f"Error transcribing chunk {chunk_num}: {str(e)}")
-                raise
-
-    # ----------------------------
-    # Merge utilities
+    # Legacy compatibility methods (deprecated)
     # ----------------------------
     @staticmethod
     def _find_longest_common_sequence(sequences: list[str], match_by_words: bool = True) -> str:
+        """
+        Find longest common sequence between transcript chunks.
+
+        NOTE: This method is deprecated and kept for compatibility.
+        The new transcription providers handle chunk merging internally.
+        """
         if not sequences:
             return ""
         if match_by_words:
@@ -214,71 +212,3 @@ class AudioEngine:
 
         total_sequence.extend(left_sequence)
         return "".join(total_sequence) if not match_by_words else "".join(total_sequence)
-
-    def _merge_transcripts(self, results: list[tuple[dict, int]]) -> dict:
-        print("\nMerging results...")
-
-        def to_dict(obj):
-            return obj.model_dump() if hasattr(obj, "model_dump") else obj
-
-        def extract_text(chunk):
-            data = to_dict(chunk)
-            return data.get("text", "") if isinstance(data, dict) else getattr(chunk, "text", "")
-
-        def extract_segments(chunk):
-            data = to_dict(chunk)
-            return data.get("segments", []) if isinstance(data, dict) else getattr(chunk, "segments", [])
-
-        def extract_words(chunk, start_offset_s):
-            data = to_dict(chunk)
-            raw_words = data.get("words", []) if isinstance(data, dict) else getattr(chunk, "words", [])
-            return [
-                {
-                    "word": w.get("word", ""),
-                    "start": w.get("start", 0) + start_offset_s,
-                    "end": w.get("end", 0) + start_offset_s,
-                }
-                for w in raw_words
-            ]
-
-        all_texts, all_words, processed_chunks = [], [], []
-        has_segments = any("segments" in to_dict(c) and to_dict(c)["segments"] for c, _ in results)
-
-        for i, (chunk, chunk_start_ms) in enumerate(results):
-            chunk_start_s = chunk_start_ms / 1000
-            all_texts.append(extract_text(chunk))
-            all_words.extend(extract_words(chunk, chunk_start_s))
-
-            if has_segments:
-                segments = extract_segments(chunk)
-                for s in segments:
-                    s["start"] += chunk_start_s
-                    s["end"] += chunk_start_s
-                processed_chunks.append(segments)
-
-        merged_text = " ".join(all_texts)
-
-        return {
-            "text": merged_text,
-            "segments": processed_chunks if has_segments else [],
-            "words": all_words,
-        }
-
-    def transcribe_audio_with_output(self, audio_file: str, transcription_dir: str, language: str) -> dict:
-        """Transcribe audio file in chunks and save the result."""
-        from app.core.logging import get_logger
-        from app.utils.utils import save_data
-
-        logger = get_logger(__name__)
-        logger.info("Transcribing audio...")
-
-        result = self.transcribe_audio_in_chunks(
-            audio_path=Path(audio_file),
-            transcription_dir=transcription_dir,
-            chunk_length=60,  # seconds
-            overlap=0,  # seconds
-            language=language
-        )
-
-        save_data(data=result, base_path=transcription_dir, file_name="transcription")
-        return result

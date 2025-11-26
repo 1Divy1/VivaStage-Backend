@@ -2,15 +2,15 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 from pydantic import BaseModel
 
-from app.models.LLM.HighlightMoment import HighlightMoment
+from app.pydantic_models.shorts.short_model import ShortModel
 
 
 class LLMProvider(ABC):
     """
-    Abstract base class for LLM providers.
+    Abstract base class for shorts providers.
 
-    This abstraction allows seamless switching between different LLM providers
-    (OpenAI, local models, Groq, etc.) without changing the core business logic.
+    This abstraction allows seamless switching between different shorts providers
+    (OpenAI, local pydantic_models, Groq, etc.) without changing the core business logic.
     """
 
     @abstractmethod
@@ -23,17 +23,17 @@ class LLMProvider(ABC):
         **kwargs
     ) -> BaseModel:
         """
-        Generate a structured response from the LLM.
+        Generate a structured response from the shorts.
 
         Args:
-            system_prompt: Instructions for the LLM's behavior
-            user_prompt: The actual prompt/question for the LLM
+            system_prompt: Instructions for the shorts's behavior
+            user_prompt: The actual prompt/question for the shorts
             response_model: Pydantic model class for structured output
             model: Specific model to use (provider-dependent)
             **kwargs: Additional provider-specific parameters
 
         Returns:
-            Instance of response_model with LLM's structured response
+            Instance of response_model with shorts's structured response
 
         Raises:
             LLMProviderError: If the provider encounters an error
@@ -43,7 +43,7 @@ class LLMProvider(ABC):
     @abstractmethod
     def get_available_models(self) -> List[str]:
         """
-        Get list of available models for this provider.
+        Get list of available pydantic_models for this provider.
 
         Returns:
             List of model names/identifiers
@@ -63,7 +63,7 @@ class LLMProvider(ABC):
 
 
 class LLMProviderError(Exception):
-    """Exception raised by LLM providers."""
+    """Exception raised by shorts providers."""
 
     def __init__(self, message: str, provider: str = None, original_error: Exception = None):
         self.provider = provider

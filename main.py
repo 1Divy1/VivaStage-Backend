@@ -12,10 +12,13 @@ from app.controllers import shorts_generator_controller
 from app.core.config import (
     OPENAI_API_KEY,
     GROQ_API_KEY,
+    GROQ_MODEL,
     LLM_PROVIDER,
     LOCAL_LLM_URL,
     LOCAL_LLM_MODEL,
-    LOCAL_LLM_TIMEOUT
+    LOCAL_LLM_TIMEOUT,
+    TRANSCRIPTION_PROVIDER,
+    GROQ_TRANSCRIPTION_MODEL
 )
 
 # Configure centralized logging
@@ -35,25 +38,55 @@ async def lifespan(app: FastAPI):
         app.state.openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
         app.state.groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-        # Initialize LLM provider based on configuration
-        from app.providers.llm.factory import LLMProviderFactory
+        # Initialize shorts provider based on configuration
+        from app.providers.llm.llm_provider_factory import LLMProviderFactory
 
         app.state.llm_provider = LLMProviderFactory.create_provider(
             provider_type=LLM_PROVIDER,
             openai_client=app.state.openai_client,
+            groq_client=app.state.groq_client,
+            groq_model=GROQ_MODEL,
             local_llm_url=LOCAL_LLM_URL,
             local_llm_model=LOCAL_LLM_MODEL,
             timeout=LOCAL_LLM_TIMEOUT
         )
 
+        # Store transcription provider configuration for dependency injection
+        app.state.transcription_provider_type = TRANSCRIPTION_PROVIDER
+        app.state.groq_transcription_model = GROQ_TRANSCRIPTION_MODEL
+
         logger.info(f"LLM provider initialized: {LLM_PROVIDER}")
+        logger.info(f"Transcription provider configured: {TRANSCRIPTION_PROVIDER}")
         logger.info("API clients initialized successfully")
 
-        # Startup validation
+        # Startup validation - fail fast with clear errors
         if LLM_PROVIDER == "openai" and not OPENAI_API_KEY:
-            logger.warning("OpenAI provider selected but API key not configured")
-        if not GROQ_API_KEY:
-            logger.warning("Groq API key not configured")
+            raise ValueError(
+                "LLM_PROVIDER is set to 'openai' but OPENAI_API_KEY is not configured. "
+                "Please set OPENAI_API_KEY in your environment variables or .env file."
+            )
+        if LLM_PROVIDER == "groq" and not GROQ_API_KEY:
+            raise ValueError(
+                "LLM_PROVIDER is set to 'groq' but GROQ_API_KEY is not configured. "
+                "Please set GROQ_API_KEY in your environment variables or .env file."
+            )
+        if LLM_PROVIDER not in ["openai", "groq", "local"]:
+            raise ValueError(
+                f"Unknown LLM_PROVIDER: {LLM_PROVIDER}. "
+                "Supported values: 'openai', 'groq', 'local'"
+            )
+
+        # Transcription provider validation
+        if TRANSCRIPTION_PROVIDER == "groq" and not GROQ_API_KEY:
+            raise ValueError(
+                "TRANSCRIPTION_PROVIDER is set to 'groq' but GROQ_API_KEY is not configured. "
+                "Please set GROQ_API_KEY in your environment variables or .env file."
+            )
+        if TRANSCRIPTION_PROVIDER not in ["groq"]:
+            raise ValueError(
+                f"Unknown TRANSCRIPTION_PROVIDER: {TRANSCRIPTION_PROVIDER}. "
+                "Supported values: 'groq'"
+            )
 
         logger.info("Application startup completed successfully")
 
