@@ -130,13 +130,16 @@ Processes a YouTube video and generates short-form vertical videos.
 ```json
 {
   "youtube_url": "https://www.youtube.com/watch?v=VIDEO_ID",
-  "number_of_reels": 3,
-  "min_seconds": 15,
-  "max_seconds": 60,
   "captions": true,
   "language": "en"
 }
 ```
+
+**Note**: The number of reels generated is automatically determined based on video duration:
+- 0-15 minutes: Up to 4 reels
+- 15-30 minutes: Up to 6 reels
+- 30-60 minutes: Up to 8 reels
+- 60+ minutes: Up to 10 reels
 
 **Response:**
 ```json
