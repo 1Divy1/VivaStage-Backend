@@ -101,7 +101,20 @@ class GroqTranscriptionProvider(TranscriptionProvider):
                 logger.debug(f"Audio chunk transcribed in {api_time:.2f}s")
 
                 # Convert Groq response to our standardized format
-                return self._convert_groq_response(result)
+                result = self._convert_groq_response(result)
+
+                # Validate the chunk result
+                if not result.get("text") and not result.get("segments"):
+                    logger.warning("Chunk transcription appears to have failed - empty result")
+                    return {
+                        "text": "",
+                        "words": [],
+                        "segments": [],
+                        "language": language,
+                        "transcription_failed": True
+                    }
+
+                return result
 
             except RateLimitError:
                 logger.warning("Rate limit hit - retrying in 60 seconds...")
@@ -149,8 +162,8 @@ class GroqTranscriptionProvider(TranscriptionProvider):
         logger.info(f"Starting transcription of: {audio_path}")
 
         try:
-            # Load audio with torchaudio
-            waveform, sample_rate = torchaudio.load(audio_path)
+            # Load audio with torchaudio (convert Path to string)
+            waveform, sample_rate = torchaudio.load(str(audio_path))
             duration_s = waveform.shape[1] / sample_rate
             logger.info(f"Audio duration: {duration_s:.2f}s")
 
@@ -214,18 +227,27 @@ class GroqTranscriptionProvider(TranscriptionProvider):
         return buffer.getvalue()
 
     def _convert_groq_response(self, groq_result) -> Dict[str, Any]:
-        """Convert Groq API response to standardized format."""
+        """Convert Groq API response to standardized format with validation."""
         def to_dict(obj):
             return obj.model_dump() if hasattr(obj, "model_dump") else obj
 
         data = to_dict(groq_result)
 
-        return {
+        # Validate and normalize response
+        validated_response = {
             "text": data.get("text", ""),
-            "words": data.get("words", []),
-            "segments": data.get("segments", []),
+            "words": data.get("words") or [],  # Ensure never None
+            "segments": data.get("segments") or [],  # Ensure never None
             "language": data.get("language")
         }
+
+        # Log warning for missing data
+        if data.get("segments") is None:
+            logger.warning("Groq API returned None for segments - chunk may have failed transcription")
+        if data.get("words") is None:
+            logger.warning("Groq API returned None for words - chunk may have failed transcription")
+
+        return validated_response
 
     def _merge_transcripts(self, results: List[tuple[Dict[str, Any], float]]) -> Dict[str, Any]:
         """
@@ -243,20 +265,46 @@ class GroqTranscriptionProvider(TranscriptionProvider):
             return chunk.get("text", "")
 
         def extract_words(chunk, start_offset_s):
-            raw_words = chunk.get("words", [])
-            return [
-                {
+            # Triple-safety: handle None at multiple levels
+            raw_words = chunk.get("words")
+            if raw_words is None:
+                return []
+
+            # Ensure we have a list
+            if not isinstance(raw_words, list):
+                logger.warning(f"Expected list for words, got {type(raw_words)}")
+                return []
+
+            # Process valid words
+            processed_words = []
+            for w in raw_words:
+                if w is None:
+                    logger.warning("Skipping None word in chunk")
+                    continue
+                processed_words.append({
                     "word": w.get("word", ""),
                     "start": w.get("start", 0) + start_offset_s,
                     "end": w.get("end", 0) + start_offset_s,
-                }
-                for w in raw_words
-            ]
+                })
+            return processed_words
 
         def extract_segments(chunk, start_offset_s):
-            raw_segments = chunk.get("segments", [])
+            # Triple-safety: handle None at multiple levels
+            raw_segments = chunk.get("segments")
+            if raw_segments is None:
+                return []
+
+            # Ensure we have a list
+            if not isinstance(raw_segments, list):
+                logger.warning(f"Expected list for segments, got {type(raw_segments)}")
+                return []
+
+            # Process valid segments
             adjusted_segments = []
             for s in raw_segments:
+                if s is None:
+                    logger.warning("Skipping None segment in chunk")
+                    continue
                 adjusted_segment = dict(s)  # Create a copy
                 adjusted_segment["start"] = s.get("start", 0) + start_offset_s
                 adjusted_segment["end"] = s.get("end", 0) + start_offset_s
@@ -273,6 +321,20 @@ class GroqTranscriptionProvider(TranscriptionProvider):
             all_texts.append(extract_text(chunk))
             all_words.extend(extract_words(chunk, chunk_start_s))
             all_segments.extend(extract_segments(chunk, chunk_start_s))
+
+        # Add failure monitoring
+        failed_chunks = sum(1 for chunk, _ in results if chunk.get("transcription_failed"))
+        total_chunks = len(results)
+
+        if failed_chunks > total_chunks * 0.5:  # More than 50% failed
+            logger.error(f"High transcription failure rate: {failed_chunks}/{total_chunks} chunks failed")
+            raise TranscriptionProviderError(
+                f"Transcription quality too poor: {failed_chunks}/{total_chunks} chunks failed",
+                provider="groq"
+            )
+
+        if failed_chunks > 0:
+            logger.warning(f"Transcription completed with {failed_chunks}/{total_chunks} failed chunks")
 
         merged_text = " ".join(all_texts)
 

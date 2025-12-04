@@ -362,6 +362,9 @@ class VideoEngine:
         yt = YouTube(str(youtube_url))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        # Extract video duration in seconds
+        video_duration_seconds = yt.length
+
         # Get all video-only MP4 streams
         video_streams = yt.streams.filter(only_video=True, file_extension="mp4").order_by("resolution").desc()
         audio_stream = yt.streams.filter(only_audio=True).order_by("abr").desc().first()
@@ -390,7 +393,8 @@ class VideoEngine:
         
         return {
             "video_file": video_file,
-            "audio_file": audio_file
+            "audio_file": audio_file,
+            "duration_seconds": video_duration_seconds
         }
 
 
@@ -436,6 +440,7 @@ class VideoEngine:
 
         return {
             "video_file": final_video_file,
-            "audio_file": video_audio_result["audio_file"]
+            "audio_file": video_audio_result["audio_file"],
+            "duration_seconds": video_audio_result["duration_seconds"]
         }
 

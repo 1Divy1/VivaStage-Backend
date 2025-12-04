@@ -6,9 +6,6 @@ from pydantic import BaseModel, HttpUrl, field_validator
 
 class GenerateShortsRequestModel(BaseModel):
     youtube_url: HttpUrl
-    number_of_reels: int
-    min_seconds: int
-    max_seconds: int
     captions: bool = False
     language: str
 

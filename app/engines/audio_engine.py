@@ -144,6 +144,12 @@ class AudioEngine:
                     "1",
                     "-c:a",
                     "flac",
+                    "-compression_level",
+                    "0",  # Faster encoding for chunks
+                    "-map",
+                    "0:a",  # Only map audio streams
+                    "-avoid_negative_ts",
+                    "make_zero",  # Handle timestamp issues
                     "-y",
                     str(output_path),
                 ],
