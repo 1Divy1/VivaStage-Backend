@@ -4,6 +4,7 @@ from app.pydantic_models.shorts.generate_shorts_request_model import GenerateSho
 from app.engines.llm_engine import LLMEngine
 from app.engines.video_engine import VideoEngine
 from app.utils.utils import save_data, prepare_output_dirs
+from app.utils.video_utils import calculate_max_reels, format_duration
 from app.core.logging import get_logger
 
 from pathlib import Path
@@ -36,32 +37,84 @@ class ReelService:
 
     async def process_reel(self, reel_data_input: GenerateShortsRequestModel):
         """THE PIPELINE - Process a reel extraction request through the complete pipeline."""
-        logger.info(f"Starting reel processing for {reel_data_input.number_of_reels} reels")
 
-        # Step 1: Setup directories
-        base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = prepare_output_dirs()
+        # TESTING CONFIGURATION - Toggle this for testing
+        SKIP_TO_STEP_5 = False  # Set to True to skip video download/transcription
+        EXISTING_TRANSCRIPT_PATH = "output/20251129_133931_deff2767/llm/prompt_formatted_input.txt"  # Update this path for testing
 
-        # Step 2: Download and process video/audio
-        video_audio_result = self.video_engine.download_and_process_video(
-            str(reel_data_input.youtube_url),
-            video_dir,
-            audio_dir
-        )
+        logger.info("Starting reel processing...")
 
-        # Step 3: Transcribe audio
-        transcription_result = await self.audio_engine.transcribe_audio_with_output(
-            video_audio_result["audio_file"],
-            transcription_dir,
-            reel_data_input.language
-        )
+        # Helper function to extract video duration from transcript
+        def get_duration_from_transcript(transcript_content: str) -> float:
+            """Extract video duration from transcript by finding the last timestamp."""
+            import re
+            lines = transcript_content.strip().split('\n')
+            if not lines:
+                return 300.0  # fallback
+            last_line = lines[-1]
+            # Parse format: [start: X.XX, end: Y.YY] => "text"
+            match = re.search(r'end: (\d+\.\d+)', last_line)
+            if match:
+                return float(match.group(1))
+            return 300.0  # fallback
 
-        # Step 4: Extract highlights using shorts
-        llm_input = self.llm_engine.create_llm_input_format(word_transcription=transcription_result)
-        save_data(data=llm_input, base_path=llm_dir, file_name="prompt_formatted_input")
+        if not SKIP_TO_STEP_5:
+            # Normal pipeline: Steps 1-4
+            # Step 1: Setup directories
+            base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = prepare_output_dirs()
 
-        highlight_moments = await self.llm_engine.extract_highlights(llm_input, reel_data_input, llm_dir)
+            # Step 2: Download and process video/audio
+            video_audio_result = self.video_engine.download_and_process_video(
+                str(reel_data_input.youtube_url),
+                video_dir,
+                audio_dir
+            )
 
-        # Step 5: Cut video clips based on highlights
+            # Step 2.1: Calculate max reels based on video duration
+            duration_seconds = video_audio_result["duration_seconds"]
+            max_reels = calculate_max_reels(duration_seconds)
+            formatted_duration = format_duration(duration_seconds)
+
+            logger.info(f"Video duration: {formatted_duration} ({duration_seconds}s) → Max reels: {max_reels}")
+
+            # Step 3: Transcribe audio
+            transcription_result = await self.audio_engine.transcribe_audio_with_output(
+                video_audio_result["audio_file"],
+                transcription_dir,
+                reel_data_input.language
+            )
+
+            # Step 4: Convert raw Whisper transcript into an LLM "digestible" format
+            llm_input = self.llm_engine.create_llm_input_format(word_transcription=transcription_result)
+            save_data(data=llm_input, base_path=llm_dir, file_name="prompt_formatted_input")
+        else:
+            # TESTING MODE: Create new directories but use existing transcript
+            # Step 1: Setup directories
+            base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = prepare_output_dirs()
+
+            # Load existing transcript
+            with open(EXISTING_TRANSCRIPT_PATH, 'r', encoding='utf-8') as f:
+                llm_input = f.read()
+
+            # Calculate duration and max_reels from transcript
+            duration_seconds = get_duration_from_transcript(llm_input)
+            max_reels = calculate_max_reels(int(duration_seconds))
+
+            logger.info(f"TESTING MODE: Using existing transcript, duration={duration_seconds}s, max_reels={max_reels}")
+
+        # Step 5: Extract highlights using chunked processing
+        highlight_moments = await self.llm_engine.chunked_extract_highlights(llm_input, max_reels, llm_dir)
+
+        if SKIP_TO_STEP_5:
+            logger.info("TESTING MODE: Stopping after highlight extraction")
+            return {
+                "highlights": [moment.model_dump() for moment in highlight_moments],
+                "test_output_dir": llm_dir,
+                "max_reels": max_reels,
+                "duration_seconds": duration_seconds
+            }
+
+        # Step 7: Cut video clips based on highlights
         logger.info("Cutting video clips from highlights...")
         clip_timestamps = [(moment.start, moment.end) for moment in highlight_moments]
         self.video_engine.cut_clips(
@@ -70,7 +123,7 @@ class ReelService:
             clips_dir
         )
 
-        # Step 6: Process each clip into 9:16 shorts with face detection
+        # Step 8: Process each clip into 9:16 shorts with face detection
         logger.info("Processing clips into 9:16 shorts...")
         short_video_paths = []
         for i, moment in enumerate(highlight_moments):
@@ -83,7 +136,7 @@ class ReelService:
             else:
                 logger.warning(f"Clip file not found: {clip_path}")
 
-        # Step 7: Add captions if requested
+        # Step 9: Add captions if requested
         final_video_paths = []
         if reel_data_input.captions:
             logger.info("Adding captions to shorts...")
@@ -104,7 +157,7 @@ class ReelService:
         else:
             final_video_paths = short_video_paths
 
-        # Step 8: Cleanup - Remove clips folder
+        # Step 10: Cleanup - Remove clips folder
         logger.info("Cleaning up temporary clips folder...")
         try:
             if Path(clips_dir).exists():
@@ -151,7 +204,9 @@ class ReelService:
             "total_shorts": len(final_video_paths),
             "metadata": {
                 "youtube_url": str(reel_data_input.youtube_url),
-                "number_requested": reel_data_input.number_of_reels,
+                "video_duration": formatted_duration,
+                "duration_seconds": duration_seconds,
+                "max_reels_allowed": max_reels,
                 "number_generated": len(final_video_paths),
                 "language": reel_data_input.language,
                 "captions_enabled": reel_data_input.captions

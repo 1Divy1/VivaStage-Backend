@@ -13,8 +13,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # shorts Provider Configuration
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "local")  # "openai", "groq", "local"
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "local")
+GROQ_MODEL = os.getenv("GROQ_MODEL")
 LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://localhost:11434")
 LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "llama3.1:8b")
 LOCAL_LLM_TIMEOUT = int(os.getenv("LOCAL_LLM_TIMEOUT", "300"))

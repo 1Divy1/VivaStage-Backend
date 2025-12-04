@@ -122,6 +122,36 @@ class PromptManager:
         else:
             raise ValueError(f"Python prompt file must define PROMPT variable or get_prompt() function: {file_path}")
 
+    def _load_prompt_by_type(self, category: str, prompt_type: str) -> str:
+        """
+        Generic method to load prompts from different categories.
+
+        Args:
+            category: The category/subdirectory (e.g., 'phase_1_scoring', 'reel_extraction')
+            prompt_type: 'system' or 'user'
+        """
+        if prompt_type not in ['system', 'user']:
+            raise ValueError(f"Invalid prompt type: {prompt_type}")
+
+        if category == 'reel_extraction':
+            if prompt_type == 'system':
+                file_path = self.prompts_dir / 'reel_extraction_system_prompt.py'
+            else:  # user
+                file_path = self.prompts_dir / 'reel_extraction_user_prompt.py'
+        elif category == 'phase_1_scoring':
+            file_path = self.prompts_dir / 'phase_1_scoring' / f'{prompt_type}_prompt.py'
+        else:
+            raise ValueError(f"Unknown prompt category: {category}")
+
+        if not file_path.exists():
+            raise FileNotFoundError(f"{category} {prompt_type} prompt file not found: {file_path}")
+
+        return self._load_python_prompt(file_path)
+
+    def _load_reel_extraction_prompt(self, prompt_type: str) -> str:
+        """Load reel extraction prompts from the new consolidated files."""
+        return self._load_prompt_by_type('reel_extraction', prompt_type)
+
     def format_prompt(
         self,
         provider_type: str,
@@ -155,47 +185,63 @@ class PromptManager:
 
     def get_highlight_extraction_prompts(
         self,
-        provider_type: str,
-        number_of_reels: int,
-        min_seconds: int,
-        max_seconds: int,
+        max_reels: int,
         llm_input: str
     ) -> Dict[str, str]:
         """
         Get formatted system and user prompts for highlight extraction.
 
         Args:
-            provider_type: 'local' or 'api'
-            number_of_reels: Number of highlights to extract
-            min_seconds: Minimum duration for highlights
-            max_seconds: Maximum duration for highlights
+            max_reels: Maximum number of highlights to extract
             llm_input: Transcript content
 
         Returns:
             Dictionary with 'system' and 'user' prompts
         """
-        # Load base prompts
-        system_prompt = self.load_prompt(provider_type, 'system', 'highlight_extraction_system')
-        user_prompt = self.load_prompt(provider_type, 'user', 'highlight_extraction_user')
+        # Load base prompts from new consolidated files
+        system_prompt = self._load_reel_extraction_prompt('system')
+        user_prompt = self._load_reel_extraction_prompt('user')
 
-        # Format with parameters
+        # Format with parameters (using fixed 10-90 seconds range)
         formatted_system = system_prompt.format(
-            min_seconds=min_seconds,
-            max_seconds=max_seconds,
-            number_of_reels=number_of_reels
+            max_reels=max_reels
         )
 
         formatted_user = user_prompt.format(
             llm_input=llm_input,
-            number_of_reels=number_of_reels,
-            min_seconds=min_seconds,
-            max_seconds=max_seconds
+            max_reels=max_reels
         )
 
         return {
             'system': formatted_system,
             'user': formatted_user
         }
+
+    def get_phase_1_scoring_prompts(self, chunk_content: str) -> Dict[str, str]:
+        """
+        Get formatted system and user prompts for Phase 1 scoring with quality criteria.
+
+        Args:
+            chunk_content: Formatted chunk content for micro-highlight extraction
+
+        Returns:
+            Dictionary with 'system' and 'user' prompts
+        """
+        # Load Phase 1 scoring prompts
+        system_prompt = self._load_phase_1_scoring_prompt('system')
+        user_prompt = self._load_phase_1_scoring_prompt('user')
+
+        # Format user prompt with chunk content
+        formatted_user = user_prompt.format(llm_input=chunk_content)
+
+        return {
+            'system': system_prompt,
+            'user': formatted_user
+        }
+
+    def _load_phase_1_scoring_prompt(self, prompt_type: str) -> str:
+        """Load Phase 1 scoring prompts with quality criteria."""
+        return self._load_prompt_by_type('phase_1_scoring', prompt_type)
 
     def clear_cache(self):
         """Clear the prompt cache."""
