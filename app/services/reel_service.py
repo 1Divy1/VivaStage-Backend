@@ -1,3 +1,5 @@
+from pyparsing import OnlyOnce
+
 from app.engines.audio_engine import AudioEngine
 from app.engines.caption_engine import CaptionEngine
 from app.pydantic_models.shorts.generate_shorts_request_model import GenerateShortsRequestModel
@@ -39,8 +41,11 @@ class ReelService:
         """THE PIPELINE - Process a reel extraction request through the complete pipeline."""
 
         # TESTING CONFIGURATION - Toggle this for testing
-        SKIP_TO_STEP_5 = False  # Set to True to skip video download/transcription
+        ONLY_LLM_INFERENCE = False  # Set to True to skip video download/transcription
+        ONLY_VIDEO_PROCESSING = True  # Set to True to skip LLM and use existing highlights
         EXISTING_TRANSCRIPT_PATH = "output/20251129_133931_deff2767/llm/prompt_formatted_input.txt"  # Update this path for testing
+        EXISTING_HIGHLIGHTS_PATH = "output/20251204_090105_ef452c65/llm/final_chunked_highlights.json"  # Update this path for testing
+        EXISTING_VIDEO_PATH = "output/20251204_090105_ef452c65/video/final_video.mp4"  # Update this path for testing
 
         logger.info("Starting reel processing...")
 
@@ -58,7 +63,65 @@ class ReelService:
                 return float(match.group(1))
             return 300.0  # fallback
 
-        if not SKIP_TO_STEP_5:
+        if ONLY_VIDEO_PROCESSING:
+            # VIDEO-ONLY TESTING MODE: Load existing highlights and process video
+            import json
+
+            # Setup new directories for this video processing test
+            base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = prepare_output_dirs()
+
+            # Load existing highlights
+            logger.info(f"VIDEO PROCESSING MODE: Loading highlights from {EXISTING_HIGHLIGHTS_PATH}")
+            with open(EXISTING_HIGHLIGHTS_PATH, 'r', encoding='utf-8') as f:
+                highlights_data = json.load(f)
+
+            # Convert to highlight moment objects (simplified)
+            from app.pydantic_models.shorts.short_model import ShortModel
+            highlight_moments = []
+            for h in highlights_data:
+                highlight_moments.append(ShortModel(
+                    start=h["start"],
+                    end=h["end"],
+                    text=h["text"],
+                    reason=h.get("reason", "Video processing test")
+                ))
+
+            # Use existing video file instead of downloading
+            video_audio_result = {"video_file": EXISTING_VIDEO_PATH}
+
+            # Set variables for final response
+            duration_seconds = 600.0  # Fallback duration for video processing mode
+            formatted_duration = format_duration(duration_seconds)
+            max_reels = len(highlight_moments)
+            transcription_result = None  # Skip captions in video-only mode
+
+            logger.info(f"VIDEO PROCESSING MODE: Processing {len(highlight_moments)} highlights from existing video")
+        elif ONLY_LLM_INFERENCE:
+            # TESTING MODE: Create new directories but use existing transcript
+            # Step 1: Setup directories
+            base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = prepare_output_dirs()
+
+            # Load existing transcript
+            with open(EXISTING_TRANSCRIPT_PATH, 'r', encoding='utf-8') as f:
+                llm_input = f.read()
+
+            # Calculate duration and max_reels from transcript
+            duration_seconds = get_duration_from_transcript(llm_input)
+            max_reels = calculate_max_reels(int(duration_seconds))
+
+            logger.info(f"TESTING MODE: Using existing transcript, duration={duration_seconds}s, max_reels={max_reels}")
+
+            # Step 5: Extract highlights using chunked processing
+            highlight_moments = await self.llm_engine.chunked_extract_highlights(llm_input, max_reels, llm_dir)
+
+            logger.info("TESTING MODE: Stopping after highlight extraction")
+            return {
+                "highlights": [moment.model_dump() for moment in highlight_moments],
+                "test_output_dir": llm_dir,
+                "max_reels": max_reels,
+                "duration_seconds": duration_seconds
+            }
+        else:
             # Normal pipeline: Steps 1-4
             # Step 1: Setup directories
             base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = prepare_output_dirs()
@@ -87,32 +150,9 @@ class ReelService:
             # Step 4: Convert raw Whisper transcript into an LLM "digestible" format
             llm_input = self.llm_engine.create_llm_input_format(word_transcription=transcription_result)
             save_data(data=llm_input, base_path=llm_dir, file_name="prompt_formatted_input")
-        else:
-            # TESTING MODE: Create new directories but use existing transcript
-            # Step 1: Setup directories
-            base_dir, video_dir, audio_dir, transcription_dir, llm_dir, clips_dir, shorts_dir = prepare_output_dirs()
 
-            # Load existing transcript
-            with open(EXISTING_TRANSCRIPT_PATH, 'r', encoding='utf-8') as f:
-                llm_input = f.read()
-
-            # Calculate duration and max_reels from transcript
-            duration_seconds = get_duration_from_transcript(llm_input)
-            max_reels = calculate_max_reels(int(duration_seconds))
-
-            logger.info(f"TESTING MODE: Using existing transcript, duration={duration_seconds}s, max_reels={max_reels}")
-
-        # Step 5: Extract highlights using chunked processing
-        highlight_moments = await self.llm_engine.chunked_extract_highlights(llm_input, max_reels, llm_dir)
-
-        if SKIP_TO_STEP_5:
-            logger.info("TESTING MODE: Stopping after highlight extraction")
-            return {
-                "highlights": [moment.model_dump() for moment in highlight_moments],
-                "test_output_dir": llm_dir,
-                "max_reels": max_reels,
-                "duration_seconds": duration_seconds
-            }
+            # Step 5: Extract highlights using chunked processing
+            highlight_moments = await self.llm_engine.chunked_extract_highlights(llm_input, max_reels, llm_dir)
 
         # Step 7: Cut video clips based on highlights
         logger.info("Cutting video clips from highlights...")
