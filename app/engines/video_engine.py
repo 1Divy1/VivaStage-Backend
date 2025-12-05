@@ -3,7 +3,8 @@ import os
 import cv2 as cv
 import numpy as np
 
-import face_recognition
+import mediapipe as mp
+from numpy.linalg import norm
 from pytubefix import YouTube
 from datetime import datetime
 from pathlib import Path
@@ -16,8 +17,22 @@ class VideoEngine:
 
     # Object level variables; they exist only for the current object instance
     def __init__(self):
-        self.known_faces = []
+        # Initialize MediaPipe FaceMesh
+        self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=False,
+            refine_landmarks=True,
+            max_num_faces=3,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+
+        # Tracking state variables for geometric similarity
+        self.prev_signature = None
+        self.prev_center = None
+        self.prev_area = None
+        self.smooth_center = None
         self.face_id_counter = 0
+
         # Store either a face centered frame or a full frame (if no face is detected)
         self.processed_frames: list[tuple[int, int, int | None, int | None]] = []
 
@@ -49,79 +64,157 @@ class VideoEngine:
         logger(f"Final video with audio saved to: {base_output_path}")
 
 
+    def generate_signature(self, landmarks):
+        """
+        Generate a geometric signature from MediaPipe face landmarks.
+        Uses key stable landmarks to create a normalized feature vector.
+        """
+        # Select key stable indices: nose tip, eye corners, cheek points, chin
+        key_idx = [1, 33, 61, 199, 263, 291]
+
+        # Use nose tip as reference point
+        base_x = landmarks[1].x
+        base_y = landmarks[1].y
+
+        vec = []
+        for idx in key_idx:
+            dx = landmarks[idx].x - base_x
+            dy = landmarks[idx].y - base_y
+            vec.extend([dx, dy])
+
+        # Convert to numpy array and normalize
+        v = np.array(vec)
+        return v / (norm(v) + 1e-6)
+
+
+    def cosine_similarity(self, a, b):
+        """
+        Calculate cosine similarity between two vectors.
+        """
+        return float(np.dot(a, b) / (norm(a) * norm(b) + 1e-6))
+
+
     def _analyze_frames(self, video_path: Path):
-        # Initialize face recognition
-        cap = cv.VideoCapture(video_path)
+        # Initialize video capture
+        cap = cv.VideoCapture(str(video_path))
 
         fps = cap.get(cv.CAP_PROP_FPS)
-        frame_interval = int(fps // 5)  # TODO: make the interval configurable (a.k.a. don't hardcode it)
         frame_idx = 0
 
         while True:
-            cap.set(cv.CAP_PROP_POS_FRAMES, frame_idx)
             success, frame = cap.read()
             if not success:
                 break
 
-            timestamp_sec = int(frame_idx / fps)
+            timestamp_sec = frame_idx / fps
 
-            face_locations = face_recognition.face_locations(frame)
+            # Convert BGR to RGB for MediaPipe
+            rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
 
-            if len(face_locations) == 0 or len(face_locations) > 1:
-                self.processed_frames.append(timestamp_sec)
+            # Process frame with MediaPipe
+            results = self.mp_face_mesh.process(rgb_frame)
+
+            if not results.multi_face_landmarks or len(results.multi_face_landmarks) > 1:
+                # No face or multiple faces detected - fallback
+                self.processed_frames.append(int(timestamp_sec))
             else:
-                center_x, face_id = self._analyze_face(frame=frame, face_location=face_locations)
-                self.processed_frames.append((timestamp_sec, center_x, face_id))
+                center_x, face_id = self._analyze_face(frame=frame, landmarks=results.multi_face_landmarks[0])
+                self.processed_frames.append((int(timestamp_sec), center_x, face_id))
 
-            frame_idx += frame_interval
+            frame_idx += 1
 
         # Close the video file after finishing
         cap.release()
 
 
-    def _analyze_face(self, frame, face_location):
-        # Generate a unique face encoding (ID) for the detected face
-        encoding = face_recognition.face_encodings(frame, face_location)
-        face_data = list(zip(face_location, encoding))
-
-        # Get the position and encoding of the detected face
-        for (top, right, bottom, left), encoding in face_data:
-            center_x = (left + right) // 2  # Calculate the horizontal center of the face
-            face_id = self._assign_face_id(encoding)  # Assign the face a unique face ID if it doesn't exist or get the existing one
-
-        return center_x, face_id
-
-
-    def _assign_face_id(self, new_encoding: np.ndarray, tolerance: float = 0.8):
+    def _analyze_face(self, frame, landmarks):
         """
-        Assigns a unique ID to a new face encoding by comparing it with known faces.
-        If the face is already known, it returns the existing ID; otherwise, it adds the new face to the list.
-        Args:
-            new_encoding (numpy.ndarray): The face encoding to assign an ID to.
-            tolerance (float): The tolerance level for face matching.
-
-        Returns:
-            int: The assigned face ID. If the face is new, it returns a new ID.
+        Analyze a single face using MediaPipe landmarks and geometric similarity.
+        Returns center_x and face_id using weighted scoring system.
         """
+        frame_height, frame_width = frame.shape[:2]
 
-        # If there are no faces known yet (aka: this is the first face), add it to the list and return ID 0
-        if not self.known_faces:
-            self.known_faces.append(new_encoding)
-            return 0
+        # Extract face information from landmarks
+        xs = [lm.x for lm in landmarks.landmark]
+        ys = [lm.y for lm in landmarks.landmark]
 
-        # Compares the current face with all known faces
-        matches = face_recognition.compare_faces(self.known_faces, new_encoding, tolerance)
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
 
-        # If the current face is present in the list, return the first index of occurrence
-        if True in matches:
-            return matches.index(True)
+        # Calculate face center in pixels
+        cx = (min_x + max_x) / 2
+        cy = (min_y + max_y) / 2
+        center_x = int(cx * frame_width)
 
-        # If no match was found add this face encoding to the list of known faces
-        self.known_faces.append(new_encoding)
+        # Calculate face area
+        area = (max_x - min_x) * (max_y - min_y)
 
-        # Increase counter (new ID) and return it
-        self.face_id_counter += 1
-        return self.face_id_counter
+        # Generate geometric signature
+        signature = self.generate_signature(landmarks.landmark)
+
+        # Current face data
+        current_face = {
+            "center": (cx, cy),
+            "area": area,
+            "signature": signature
+        }
+
+        # Determine face ID using geometric similarity
+        if self.prev_signature is None:
+            # First face - assign ID 0
+            face_id = 0
+            self.prev_signature = signature
+            self.prev_center = (cx, cy)
+            self.prev_area = area
+            self.smooth_center = np.array([cx, cy])
+        else:
+            # Calculate similarity score
+            geo_sim = self.cosine_similarity(signature, self.prev_signature)
+
+            # Size consistency (penalize dramatic size changes)
+            area_ratio = area / (self.prev_area + 1e-6)
+            size_consistency = 1 - abs(1 - area_ratio)
+            size_consistency = max(0, size_consistency)  # Clamp to [0,1]
+
+            # Position continuity (penalize large movements)
+            center_dist = np.linalg.norm(
+                np.array([cx, cy]) - np.array(self.prev_center)
+            )
+            position_continuity = max(0, 1 - center_dist)  # Clamp to [0,1]
+
+            # Weighted score
+            score = (
+                0.55 * geo_sim +
+                0.30 * size_consistency +
+                0.15 * position_continuity
+            )
+
+            # If score is above threshold, same person; otherwise new person
+            if score > 0.6:  # Threshold for same person
+                face_id = 0  # Same person (simplified - we only track one speaker)
+            else:
+                self.face_id_counter += 1
+                face_id = self.face_id_counter
+
+            # Update tracking state
+            self.prev_signature = signature
+            self.prev_center = (cx, cy)
+            self.prev_area = area
+
+        # Apply EMA smoothing to center position
+        if self.smooth_center is None:
+            self.smooth_center = np.array([cx, cy])
+        else:
+            self.smooth_center = (
+                0.2 * np.array([cx, cy]) +
+                0.8 * self.smooth_center
+            )
+
+        # Use smoothed center for final center_x calculation
+        smooth_center_x = int(self.smooth_center[0] * frame_width)
+
+        return smooth_center_x, face_id
+
 
     def _build_video_segments(self, max_gap=2):
         """
